@@ -61,7 +61,7 @@ static int unraw_tty(tty_t* tty)
     return tcsetattr(tty->device_fd,TCSAFLUSH,tty->unraw_buffer);
 }
 
-int writef(tty_t* tty, const char* fmt, ...)
+int tty_writef(tty_t* tty, const char* fmt, ...)
 {
     char* s;
     int   l;
@@ -142,7 +142,7 @@ void tty_get_cursor_position(tty_t* tty, int* x, int* y)
 void tty_update_cursor_position(tty_t* tty)
 {
     assert(tty);
-    writef(tty,"%c[%d;%dH",CURSOR_ESC,tty->cursor_y,tty->cursor_x);
+    tty_writef(tty,"%c[%d;%dH",CURSOR_ESC,tty->cursor_y,tty->cursor_x);
 }
 
 void tty_set_cursor_position(tty_t* tty, int x, int y)
@@ -190,7 +190,7 @@ void tty_scroll_down(tty_t* tty, unsigned int count)
     {
         if(tty->cursor_x >= tty_height(tty))
         {
-            writef(tty,"%cD",CURSOR_ESC);
+            tty_writef(tty,"%cD",CURSOR_ESC);
         }
         tty_move_cursor_vert(tty,1);
         tty_set_cursor_horiz(tty,1);
@@ -212,6 +212,6 @@ int tty_printf_right_align(tty_t* tty, const char* fmt, ...)
     va_end(ap);
     if(0 >= w) return printf("%s",s);
     tty_set_cursor_horiz(tty,w-l);
-    writef(tty,"%s",s);
+    tty_writef(tty,"%s",s);
     return l;
 }
