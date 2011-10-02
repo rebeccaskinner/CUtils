@@ -23,39 +23,57 @@ static struct termios saved_tty;
  (_v >= min) ? ( (_v <= max) ? _v : max) : min; \
 })
 
-static void cursor_init() __attribute__((constructor));
+typedef struct termios termios_t;
+typedef struct winsize winsize_t;
 
-int writef(int fd, const char* fmt, ...)
+typedef struct
+{
+    int        device_fd;
+    uint16_t   cursor_x;
+    uint16_t   cursor_y;
+    winsize_t  winsize;
+    termios_t* unraw_buffer;
+} tty_t;
+
+int writef(tty_t* tty, const char* fmt, ...)
 {
     char* s;
     int   l;
+    int   r;
     va_list ap;
+    assert(tty && fmt);
     va_start(ap,fmt);
     l = vasprintf(&s,fmt,ap);
     va_end(ap);
-    return write(fd,s,l);
+    r = write(tty->device_fd,s,l);
+    free(s);
+    return r;
 }
 
-int raw_tty(int fd)
+static int raw_tty(tty_t* tty)
 {
-    struct termios tty;
-    if(! isatty(fd)) return -1;
-    if(-1 == tcgetattr(fd,&saved_tty))
+    struct termios raw_tty;
+    assert(tty);
+    if(!tty->unraw_tty)
+        tty->unraw_buffer = malloc(sizeof(termios_t));
+
+    if(-1 == tcgetattr(tty->device_fd, tty->unraw_buffer))
     {
         fprintf(stderr,"Error getting terminal info: %s\n",strerror(errno));
+        free(tty->unraw_buffer);
+        tty->unraw_buffer = NULL;
         return -1;
     }
-    term_saved = 1;
 
-    tty = saved_tty;
-    tty.c_iflag &= ~(BRKINT | ICRNL  | ISTRIP | IXON);
-    tty.c_cflag &= ~(CSIZE  | PARENB);
-    tty.c_cflag |= CS8;
-    tty.c_oflag &= ~OPOST;
-    tty.c_cc[VMIN] = 1;
-    tty.c_cc[VTIME] = 0;
+    memcpy(&raw_tty,tty->unraw_buffer,sizeof(tty_t));
+    raw_tty.c_iflag &= ~(BRKINT | ICRNL  | ISTRIP | IXON);
+    raw_tty.c_cflag &= ~(CSIZE  | PARENB);
+    raw_tty.c_cflag |= CS8;
+    raw_tty.c_oflag &= ~OPOST;
+    raw_tty.c_cc[VMIN] = 1;
+    raw_tty.c_cc[VTIME] = 0;
 
-    if(-1 == tcsetattr(fd,TCSAFLUSH,&tty))
+    if(-1 == tcsetattr(tty->device_fd,TCSAFLUSH,&raw_tty))
     {
         fprintf(stderr,"Error setting terminal info: %s\n",strerror(errno));
         return -1;
@@ -64,62 +82,108 @@ int raw_tty(int fd)
     return 0;
 }
 
-int unraw_tty(int fd)
+static int unraw_tty(tty_t* tty)
 {
-    if(!isatty(fd)) return -1;
-    if(!term_saved) return 0;
-    return tcsetattr(fd,TCSAFLUSH,&saved_tty);
+    assert(tty);
+    if(!tty->unraw_buffer) return 0;
+    return tcsetattr(tty->device_fd,TCSAFLUSH,tty->unraw_buffer);
 }
 
-static void cursor_init()
+void tty_update_termsize(tty_t* tty)
 {
-    cursor_pos_x = 0;
-    cursor_pos_y = 0;
+    assert(tty);
+    ioctl(tty->device_fd,TIOCGWINSZ,&tty->winsize);
 }
 
-int get_term_size(int fd, uint32_t* x, uint32_t* y)
+int tty_width(tty_t* tty)
 {
-    struct winsize w;
-    if(!isatty(fd)) return 1;
-    ioctl(fd,TIOCGWINSZ,&w);
-    *x = w.ws_row;
-    *y = w.ws_col;
-    return 0;
+    assert(tty);
+    return tty->winsize.ws_col;
 }
 
-int get_term_width(int fd)
+int tty_height(tty_t* tty)
 {
-    uint32_t x, y;
-    get_term_size(fd,&x,&y);
-    return y;
+    assert(tty);
+    return tty->winsize.ws_row;
 }
 
-int get_term_height(int fd)
+void tty_size(tty_t* tty, int* x, int* y)
 {
-    uint32_t x, y;
-    get_term_size(fd,&x,&y);
-    return x;
+    assert(tty && x && y);
+    *x = tty_width(tty);
+    *y = tty_height(tty);
 }
 
-void update_cursor(int fd)
+int tty_get_cursor_x(tty_t* tty)
 {
-    writef(fd,"%c[%d;%dH",CURSOR_ESC,cursor_pos_x,cursor_pos_y);
+    assert(tty);
+    return tty->cursor_x;
 }
 
-void get_cursor_position(int* x, int* y)
+int tty_get_cursor_y(tty_t* tty)
 {
-    assert(x && y);
-    *x = cursor_pos_x;
-    *y = cursor_pos_y;
+    assert(tty);
+    return tty->cursor_y;
 }
 
-void move_cursor(int fd, int x, int y)
+void tty_get_cursor_position(tty_t* tty, int* x, int* y)
 {
-    int max_x, max_y;
-    get_term_size(fd, &max_x, &max_y);
-    cursor_pos_x = CONSTRAIN(0,max_x,(cursor_pos_x + x));
-    cursor_pos_y = CONSTRAIN(0,max_y,(cursor_pos_y + y));
-    update_cursor(fd);
+    assert(tty && x && y);
+    *x = tty->cursor_x;
+    *y = tty->cursor_y;
+}
+
+void tty_update_cursor_position(tty_t* tty)
+{
+    assert(tty);
+    writef(tty->device_fd,"%c[%d;%dH",CURSOR_ESC,tty->cursor_x,tty->cursor_y);
+}
+
+void tty_set_cursor_position(tty_t* tty, int x, int y)
+{
+    assert(tty);
+    tty->cursor_x = CONSTRAINT(0,tty_width(tty),x);
+    tty->cursor_y = CONSTRAINT(0,tty_height(tty),y);
+    tty_update_cursor_position(tty);
+}
+
+void tty_set_cursor_horiz(tty_t* tty, int x)
+{
+    assert(tty);
+    tty_set_cursor_position(tty,x,tty->cursor_y);
+}
+
+void tty_set_cursor_vert(tty_t* tty, int y)
+{
+    assert(tty);
+    tty_set_cursor_position(tty,tty->cursor_x,y);
+}
+
+void tty_move_cursor_position(tty_t* tty, int x, int y)
+{
+    assert(tty);
+    tty->cursor_x = CONSTRAIN(0,tty_width(tty),tty->cursor_x + x);
+    tty->cursor_y = CONSTRAIN(0,tty_height(tty),tty->cursor_y + y);
+    tty_update_cursor_position(tty);
+}
+
+void tty_move_cursor_horiz(tty_t* tty, int x)
+{
+    tty_move_cursor_position(tty,x,0);
+}
+
+void tty_move_cursor_vert(tty_t* tty, int y)
+{
+    tty_move_cursor_position(tty,0,y);
+}
+
+void tty_scroll_down(tty_t* tty, unsigned int count)
+{
+    assert(tty);
+    for(int i = 0; i < count; i++)
+    {
+
+    }
 }
 
 void advance_line(int fd)
