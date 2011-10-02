@@ -1,25 +1,38 @@
 CC=gcc
 
-CFLAGS=-std=gnu99
+CFLAGS=-std=gnu99 \
+       -g         \
+       -ggdb      \
+       -fPIC      \
+       -Wall      \
+       -Wextra    \
+       -Werror
 
-LIB_CFLAGS=-c -fPIC -g -Wall
-LIB_objects=hashmap.o jhash.o
+TESTS=testhashmap.c test_tty.c
+SOURCES=$(filter-out $(TESTS),$(shell ls *.c))
+OBJECTS=$(patsubst %.c,%.o,$(SOURCES))
+HEADERS=$(patsubst %.c,%.h,$(SOURCES))
 
 %.o: %.c
-	$(CC) $(CFLAGS) $(LIB_CFLAGS) $< -o $@
+	$(CC) -DTEST -c $(CFLAGS) $(LIB_CFLAGS) $< -o $@
 
-libname=cutils.so
+libname=libcutils
 
-.PHONY: clean
-	.IGNORE: clean
+all: libcutils test_tty
 
-all: cutils
+libcutils: $(OBJECTS)
+	$(CC) -shared -o $(@).so.1 $(OBJECTS)
+	-ln -sf $(@).so.1 $(@).so
 
-cutils: $(LIB_objects)
-	        $(CC) -shared -o $(libname) $(LIB_objects) $(LIB_statlibs)
+test_tty: libcutils
+	$(CC) $(CFLAGS) $(@).c -L. -lcutils -o $(@)
 
 obj_clean:
-	        -rm -f $(LIB_objects)
+	-rm -f *.o
 
 clean: obj_clean
-	        -rm -f $(libname)
+	-rm -f $(libname).so.1
+	-rm -f $(libname).so
+	-rm -f test_tty
+
+.PHONY: all clean

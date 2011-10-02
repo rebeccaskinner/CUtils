@@ -1,6 +1,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include "utils.h"
 #include "hashmap.h"
 
 void destroy(void* data)
@@ -13,7 +14,7 @@ int compare(const char* key1, const char* key2)
     return strcmp(key1,key2);
 }
 
-int main(int argc, char** argv)
+int main(int argc UNUSED, char** argv UNUSED)
 {
     struct hashmap* m;
     m = hashmap_init(30,compare,destroy);

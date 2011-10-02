@@ -14,7 +14,7 @@ struct hashmap* hashmap_init(
 {
     struct hashmap* map = NULL;
     map = (struct hashmap*)malloc(sizeof(struct hashmap));
-    map->table = (void**)malloc(positions*sizeof(struct table_entry*));
+    map->table = malloc(positions*sizeof(struct table_entry*));
     map->compare=cmp;
     map->destroy=del;
     map->size=0;
@@ -31,7 +31,7 @@ void hashmap_destroy(struct hashmap* map)
 {
     if(NULL == map)
         return;
-    for(int i=0;i<map->numpos;++i)
+    for(unsigned int i=0;i<map->numpos;++i)
     {
         if(NULL == map->table[i])
             continue;
@@ -69,7 +69,7 @@ int hashmap_insert(struct hashmap* map, const char* key, const void* data)
 {
     if(NULL == map || NULL == key)
         return -1;
-    for(int i=1; i<map->numpos; ++i)
+    for(unsigned int i=1; i<map->numpos; ++i)
     {
         uint32_t hashvalue;
         if(0 == (hashvalue = calculate_hash(map->numpos,key,i)))
@@ -80,7 +80,7 @@ int hashmap_insert(struct hashmap* map, const char* key, const void* data)
             (map->table[hashvalue])=(struct table_entry*)malloc(sizeof(struct table_entry));
             (map->table[hashvalue])->key = malloc(strlen(key)+1);
             strcpy((map->table[hashvalue])->key,key);
-            (map->table[hashvalue])->data = data;
+            (map->table[hashvalue])->data = (char*)data;
             return 0;
         }
     }
@@ -91,7 +91,7 @@ int hashmap_remove(struct hashmap* map, const char* key)
 {
     if(NULL == map || NULL == key)
         return -1;
-    for(int i=1;i<map->numpos;++i)
+    for(unsigned int i=1;i<map->numpos;++i)
     {
         uint32_t hashvalue;
         if(0 == (hashvalue = calculate_hash(map->numpos,key,i)))
@@ -114,7 +114,7 @@ void* hashmap_lookup(const struct hashmap* map, const char* key)
 {
     if(NULL == map || NULL == key)
         return NULL;
-    for(int i=1;i<map->numpos;++i)
+    for(unsigned int i=1;i<map->numpos;++i)
     {
         uint32_t hashvalue;
         if(0 == (hashvalue = calculate_hash(map->numpos,key,i)))

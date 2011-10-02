@@ -14,6 +14,12 @@ void color_stop()
 
 int color_printf(int mode, int fg, int bg, const char* fmt, ...)
 {
+    va_list ap;
+    int r;
     color_start(mode,fg,bg);
+    va_start(ap,fmt);
+    r = vprintf(fmt,ap);
+    va_end(ap);
     color_stop();
+    return r;
 }

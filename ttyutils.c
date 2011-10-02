@@ -10,7 +10,8 @@
 #include <stdarg.h>
 #include <sys/ioctl.h>
 
-#include "ttydefs.h"
+#include "utils.h"
+#include "ttyutils.h"
 
 #define CONSTRAIN(min,max,val) \
 ({ \
@@ -18,26 +19,14 @@
  (_v >= min) ? ( (_v <= max) ? _v : max) : min; \
 })
 
-int writef(tty_t* tty, const char* fmt, ...)
-{
-    char* s;
-    int   l;
-    int   r;
-    va_list ap;
-    assert(tty && fmt);
-    va_start(ap,fmt);
-    l = vasprintf(&s,fmt,ap);
-    va_end(ap);
-    r = write(tty->device_fd,s,l);
-    free(s);
-    return r;
-}
+static int raw_tty(tty_t* tty);
+static int unraw_tty(tty_t* tty);
 
 static int raw_tty(tty_t* tty)
 {
     struct termios raw_tty;
     assert(tty);
-    if(!tty->unraw_tty)
+    if(!tty->unraw_buffer)
         tty->unraw_buffer = malloc(sizeof(termios_t));
 
     if(-1 == tcgetattr(tty->device_fd, tty->unraw_buffer))
@@ -72,6 +61,40 @@ static int unraw_tty(tty_t* tty)
     return tcsetattr(tty->device_fd,TCSAFLUSH,tty->unraw_buffer);
 }
 
+int writef(tty_t* tty, const char* fmt, ...)
+{
+    char* s;
+    int   l;
+    int   r;
+    va_list ap;
+    assert(tty && fmt);
+    va_start(ap,fmt);
+    l = vasprintf(&s,fmt,ap);
+    va_end(ap);
+    r = write(tty->device_fd,s,l);
+    free(s);
+    return r;
+}
+
+tty_t* tty_new(int fd)
+{
+    tty_t* tty;
+    if(!isatty(fd)) return NULL;
+    tty = malloc0(sizeof(tty_t));
+    tty->device_fd = fd;
+    tty_update_termsize(tty);
+    raw_tty(tty);
+    return tty;
+}
+
+void tty_free(tty_t* tty)
+{
+    assert(tty);
+    unraw_tty(tty);
+    if(LIKELY(NULL != tty->unraw_buffer))
+        free(tty->unraw_buffer);
+    free(tty);
+}
 void tty_update_termsize(tty_t* tty)
 {
     assert(tty);
@@ -119,14 +142,14 @@ void tty_get_cursor_position(tty_t* tty, int* x, int* y)
 void tty_update_cursor_position(tty_t* tty)
 {
     assert(tty);
-    writef(tty->device_fd,"%c[%d;%dH",CURSOR_ESC,tty->cursor_x,tty->cursor_y);
+    writef(tty,"%c[%d;%dH",CURSOR_ESC,tty->cursor_y,tty->cursor_x);
 }
 
 void tty_set_cursor_position(tty_t* tty, int x, int y)
 {
     assert(tty);
-    tty->cursor_x = CONSTRAINT(0,tty_width(tty),x);
-    tty->cursor_y = CONSTRAINT(0,tty_height(tty),y);
+    tty->cursor_x = CONSTRAIN(0,tty_width(tty),x);
+    tty->cursor_y = CONSTRAIN(0,tty_height(tty),y);
     tty_update_cursor_position(tty);
 }
 
@@ -163,12 +186,18 @@ void tty_move_cursor_vert(tty_t* tty, int y)
 void tty_scroll_down(tty_t* tty, unsigned int count)
 {
     assert(tty);
-    for(int i = 0; i < count; i++)
-        writef(tty,"%cD",CURSOR_ESC);
-    tty_move_cursor_vert(tty,count);
+    for(unsigned int i = 0; i < count; i++)
+    {
+        if(tty->cursor_x >= tty_height(tty))
+        {
+            writef(tty,"%cD",CURSOR_ESC);
+        }
+        tty_move_cursor_vert(tty,1);
+        tty_set_cursor_horiz(tty,1);
+    }
 }
 
-int printf_right_align(tty_t* tty, const char* fmt, ...)
+int tty_printf_right_align(tty_t* tty, const char* fmt, ...)
 {
     char*    s;
     int      l;
@@ -182,19 +211,7 @@ int printf_right_align(tty_t* tty, const char* fmt, ...)
     l = vasprintf(&s,fmt,ap);
     va_end(ap);
     if(0 >= w) return printf("%s",s);
-    tty_move_cursor_horiz(tty,w-l);
+    tty_set_cursor_horiz(tty,w-l);
     writef(tty,"%s",s);
+    return l;
 }
-
-#ifdef TEST
-int main(int argc, char** argv)
-{
-    raw_tty(0);
-    for(int i = 0; i < 10 + (get_term_height(0)); i++) {
-        printf_right_align(0,"%s - %d",argv[1],i);
-        advance_line(0);
-        usleep(50000);
-    }
-    unraw_tty(0);
-}
-#endif
