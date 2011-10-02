@@ -10,30 +10,13 @@
 #include <stdarg.h>
 #include <sys/ioctl.h>
 
-static unsigned short cursor_pos_x;
-static unsigned short cursor_pos_y;
-static int term_saved = 0;
-static struct termios saved_tty;
+#include "ttydefs.h"
 
-#define CURSOR_ESC 0x1B
-#define CURSOR_CMD "\27["
 #define CONSTRAIN(min,max,val) \
 ({ \
  typeof(val) _v = (val); \
  (_v >= min) ? ( (_v <= max) ? _v : max) : min; \
 })
-
-typedef struct termios termios_t;
-typedef struct winsize winsize_t;
-
-typedef struct
-{
-    int        device_fd;
-    uint16_t   cursor_x;
-    uint16_t   cursor_y;
-    winsize_t  winsize;
-    termios_t* unraw_buffer;
-} tty_t;
 
 int writef(tty_t* tty, const char* fmt, ...)
 {
@@ -181,34 +164,26 @@ void tty_scroll_down(tty_t* tty, unsigned int count)
 {
     assert(tty);
     for(int i = 0; i < count; i++)
-    {
-
-    }
+        writef(tty,"%cD",CURSOR_ESC);
+    tty_move_cursor_vert(tty,count);
 }
 
-void advance_line(int fd)
+int printf_right_align(tty_t* tty, const char* fmt, ...)
 {
-    int max_x = get_term_height(fd);
-    if(cursor_pos_x >= max_x)
-        writef(fd,"%cD",CURSOR_ESC);
-    cursor_pos_x = CONSTRAIN(0,max_x,(cursor_pos_x + 1));
-    cursor_pos_y = 0;
-    update_cursor(fd);
-}
-
-int printf_right_align(int fd, const char* fmt, ...)
-{
-    char* s;
-    int   l;
-    int   w = get_term_width(0);
+    char*    s;
+    int      l;
+    int      w;
     va_list ap;
+
+    assert(tty && fmt);
+
+    w = tty_width(tty);
     va_start(ap,fmt);
     l = vasprintf(&s,fmt,ap);
     va_end(ap);
-    if(0 >= w)
-        return printf("%s",s);
-    move_cursor(fd,0,w-l);
-    writef(fd,"%s",s);
+    if(0 >= w) return printf("%s",s);
+    tty_move_cursor_horiz(tty,w-l);
+    writef(tty,"%s",s);
 }
 
 #ifdef TEST
